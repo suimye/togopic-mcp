@@ -103,6 +103,20 @@ npm test            # citation unit tests
 npm run dev         # tsc --watch
 ```
 
+## Companion skill
+
+`skills/togopic-figures/SKILL.md` is a Claude Code skill that teaches the
+citation-correct workflow: when to use the MCP's `build_figure` / `build_pptx`
+alone, and when to combine the MCP (image + `download_asset` embedded credit +
+`bibtex`) with the `pptx` / `docx` / `pdf` document skills for polished output.
+
+Enable it (Claude Code):
+
+```bash
+mkdir -p ~/.claude/skills
+ln -s "$(pwd)/skills/togopic-figures" ~/.claude/skills/togopic-figures
+```
+
 ## Data source
 
 Picture metadata is authored in a Google Spreadsheet, indexed into Elastic Search
