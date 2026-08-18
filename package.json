@@ -1,0 +1,33 @@
+{
+  "name": "togopic-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for TogoTV Togo picture gallery — search illustrations and always emit the required CC-BY-4.0 credit.",
+  "license": "MIT",
+  "author": "suimye",
+  "type": "module",
+  "bin": {
+    "togopic-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "test": "node --test --loader ts-node/esm test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

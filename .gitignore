@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+npm-debug.log*
+
+# build output
+dist/
+
+# env / secrets (this server needs none, but never commit any)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*secret*
+*credential*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/settings.json
