@@ -4,7 +4,7 @@
  * References slide. Uses pptxgenjs (pure JS, no headless browser).
  */
 import pptxgenDefault from "pptxgenjs";
-import { buildCitation, bareDoi, type CitationOptions } from "./citation.js";
+import { buildCitation, shortCredit, bareDoi, type CitationOptions } from "./citation.js";
 import type { FigureEntry } from "./figure.js";
 
 // pptxgenjs ships a default-exported class; normalize across CJS/ESM interop.
@@ -12,6 +12,9 @@ const PptxGenJS = pptxgenDefault as unknown as { new (): any };
 
 export interface PptxOptions extends CitationOptions {
   title?: string;
+  /** Where the per-slide credit goes. "corner" = small, bottom-right (default);
+   *  "caption" = full legend centered beneath the image. */
+  creditPlacement?: "corner" | "caption";
 }
 
 /** Fit (w,h) inside (maxW,maxH) preserving aspect; returns inches. */
@@ -26,6 +29,7 @@ export async function buildPptx(
   opts: PptxOptions = {}
 ): Promise<string> {
   const isJa = (opts.locale ?? "en") === "ja";
+  const placement = opts.creditPlacement ?? "corner";
   const pptx = new PptxGenJS();
   pptx.defineLayout({ name: "W", width: 10, height: 5.63 });
   pptx.layout = "W";
@@ -37,24 +41,39 @@ export async function buildPptx(
     const title = isJa ? p.name : p.name_en || p.name;
     const lab = isJa ? `図 ${i + 1}` : `Fig. ${i + 1}`;
 
-    // Image area: centered upper block, aspect-preserved.
-    const box = contain(image.natW ?? 1, image.natH ?? 1, 5.2, 3.4);
-    slide.addImage({
-      data: `${image.mime};base64,${image.base64}`,
-      x: (10 - box.w) / 2,
-      y: 0.35,
-      w: box.w,
-      h: box.h,
+    // Slide title (top).
+    slide.addText(`${lab}. ${title}`, {
+      x: 0.5, y: 0.25, w: 9, h: 0.6, align: "center", bold: true, fontSize: 20,
     });
 
-    // Legend / caption with the mandatory credit.
-    slide.addText(
-      [
-        { text: `${lab}. ${title}`, options: { bold: true, fontSize: 12 } },
-        { text: "\n" + c.text, options: { fontSize: 9, color: "444444" } },
-      ],
-      { x: 0.5, y: 4.05, w: 9, h: 1.35, align: "center", valign: "top" }
-    );
+    if (placement === "caption") {
+      const box = contain(image.natW ?? 1, image.natH ?? 1, 5.2, 3.1);
+      slide.addImage({
+        data: `${image.mime};base64,${image.base64}`,
+        x: (10 - box.w) / 2, y: 0.95, w: box.w, h: box.h,
+      });
+      slide.addText(c.text, {
+        x: 0.5, y: 4.2, w: 9, h: 1.2, align: "center", valign: "top",
+        fontSize: 9, color: "444444",
+      });
+    } else {
+      // "corner": larger image, small license note bottom-right.
+      const box = contain(image.natW ?? 1, image.natH ?? 1, 6.4, 3.9);
+      slide.addImage({
+        data: `${image.mime};base64,${image.base64}`,
+        x: (10 - box.w) / 2, y: 0.95, w: box.w, h: box.h,
+      });
+      slide.addText(
+        [
+          { text: shortCredit(p, opts), options: { breakLine: true } },
+          { text: c.doi, options: { fontSize: 7 } },
+        ],
+        {
+          x: 4.9, y: 4.95, w: 4.85, h: 0.55, align: "right", valign: "bottom",
+          fontSize: 7.5, color: "888888",
+        }
+      );
+    }
   }
 
   // References slide.

@@ -135,6 +135,12 @@ export function buildCitation(p: Picture, opts: CitationOptions = {}): CitationB
   return { text, html, bibtex, doi: doiUrl };
 }
 
+/** Compact credit for a slide corner: "© YYYY DBCLS TogoTV · CC-BY-4.0". */
+export function shortCredit(p: Picture, opts: CitationOptions = {}): string {
+  const year = citationYear(p);
+  return `© ${year} ${COPYRIGHT_HOLDER} · ${LICENSE_CODE}`;
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

@@ -309,28 +309,37 @@ server.tool(
 
 server.tool(
   "build_pptx",
-  "Build a PowerPoint (.pptx): one slide per picture with the image centered and the " +
-    "mandatory CC-BY-4.0 credit in a caption legend beneath it, plus a References slide. " +
-    "Returns the output .pptx file path.",
+  "Build a PowerPoint (.pptx): one slide per picture (title + image), a compact " +
+    "CC-BY-4.0 license note in the bottom-right corner by default, plus a References " +
+    "slide with the full credits. Use creditPlacement:'caption' for a full legend " +
+    "beneath the image instead. Returns the output .pptx file path.",
   {
     ids: z.array(z.string()).min(1).describe("DOI URLs or bare DOIs, one slide each."),
+    creditPlacement: z
+      .enum(["corner", "caption"])
+      .default("corner")
+      .describe("'corner' = small license note bottom-right; 'caption' = full legend below image."),
     locale: localeSchema,
     sourceLabel: sourceLabelSchema,
     modified: z.boolean().default(false).describe("Set true if any image was altered."),
     title: z.string().optional(),
     outPath: z.string().optional().describe("Absolute .pptx output path; default is a temp dir."),
   },
-  async ({ ids, locale, sourceLabel, modified, title, outPath }) => {
+  async ({ ids, creditPlacement, locale, sourceLabel, modified, title, outPath }) => {
     try {
       const { entries, missing } = await resolveEntries(ids, { locale, sourceLabel, modified });
       if (entries.length === 0) return errorResult(`no usable pictures for: ${ids.join(", ")}`);
       const out = outPath ?? outName(entries, "pptx");
-      await buildPptx(entries, out, { locale, sourceLabel, modified, title });
+      await buildPptx(entries, out, { locale, sourceLabel, modified, title, creditPlacement });
       return textResult({
         path: out,
         slides: entries.length,
         missing,
-        note: "Credit is in each slide's caption legend and on the References slide.",
+        creditPlacement,
+        note:
+          creditPlacement === "corner"
+            ? "Compact license note is in each slide's bottom-right corner; full credits on the References slide."
+            : "Credit is in each slide's caption legend and on the References slide.",
       });
     } catch (e) {
       return errorResult(`build_pptx failed: ${(e as Error).message}`);
