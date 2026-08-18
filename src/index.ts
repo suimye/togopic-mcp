@@ -15,7 +15,8 @@ import { writeFile } from "node:fs/promises";
 
 import { searchPictures, listPictures, getPictureById, getFacets, assetUrl } from "./api.js";
 import { buildCitation, buildReferenceMarkdown, plain, bareDoi } from "./citation.js";
-import { fetchImageAsDataUri } from "./assets.js";
+import { fetchImageBuffer, toEmbedded } from "./assets.js";
+import { attributionMeta, embedPngAttribution, embedSvgAttribution } from "./embed.js";
 import { buildFigureHtml, type FigureEntry } from "./figure.js";
 import { buildPptx } from "./pptx.js";
 import { htmlToPdf } from "./render.js";
@@ -29,8 +30,13 @@ const sourceLabelSchema = z
 
 const OUT_DIR = process.env.TOGOPIC_OUT_DIR ?? tmpdir();
 
-/** Fetch pictures + their PNG images for the given ids (for figure/pptx output). */
-async function resolveEntries(ids: string[]): Promise<{ entries: FigureEntry[]; missing: string[] }> {
+/** Fetch pictures + their PNG images for the given ids (for figure/pptx output).
+ *  The PNG bytes carry embedded attribution (layer 3), so any media extracted
+ *  from the resulting .pptx still holds the credit. */
+async function resolveEntries(
+  ids: string[],
+  opts: { locale: "ja" | "en"; sourceLabel?: string; modified?: boolean }
+): Promise<{ entries: FigureEntry[]; missing: string[] }> {
   const entries: FigureEntry[] = [];
   const missing: string[] = [];
   for (const id of ids) {
@@ -39,8 +45,10 @@ async function resolveEntries(ids: string[]): Promise<{ entries: FigureEntry[]; 
       missing.push(id);
       continue;
     }
-    const image = await fetchImageAsDataUri(assetUrl(p.png));
-    entries.push({ picture: p, image });
+    const { buf, mime } = await fetchImageBuffer(assetUrl(p.png));
+    const meta = attributionMeta(p, opts);
+    const embedded = mime === "image/png" ? embedPngAttribution(buf, meta) : buf;
+    entries.push({ picture: p, image: toEmbedded(embedded, mime) });
   }
   return { entries, missing };
 }
@@ -198,7 +206,8 @@ server.tool(
         license: "CC-BY-4.0",
         reminder:
           "You MUST display this credit wherever the image is used (figure legend, " +
-          "slide, Acknowledgement, etc.).",
+          "slide, Acknowledgement, etc.). For a file with the credit embedded in its " +
+          "metadata, use download_asset instead.",
       });
     } catch (e) {
       return errorResult(`get_picture_asset failed: ${(e as Error).message}`);
@@ -274,7 +283,7 @@ server.tool(
   },
   async ({ ids, format, locale, sourceLabel, modified, title, outPath }) => {
     try {
-      const { entries, missing } = await resolveEntries(ids);
+      const { entries, missing } = await resolveEntries(ids, { locale, sourceLabel, modified });
       if (entries.length === 0) return errorResult(`no usable pictures for: ${ids.join(", ")}`);
       const html = buildFigureHtml(entries, { locale, sourceLabel, modified, title });
 
@@ -313,7 +322,7 @@ server.tool(
   },
   async ({ ids, locale, sourceLabel, modified, title, outPath }) => {
     try {
-      const { entries, missing } = await resolveEntries(ids);
+      const { entries, missing } = await resolveEntries(ids, { locale, sourceLabel, modified });
       if (entries.length === 0) return errorResult(`no usable pictures for: ${ids.join(", ")}`);
       const out = outPath ?? outName(entries, "pptx");
       await buildPptx(entries, out, { locale, sourceLabel, modified, title });
@@ -325,6 +334,62 @@ server.tool(
       });
     } catch (e) {
       return errorResult(`build_pptx failed: ${(e as Error).message}`);
+    }
+  }
+);
+
+server.tool(
+  "download_asset",
+  "Download a picture asset to disk WITH the credit embedded in the file itself " +
+    "(layer-3 attribution): PNG gets iTXt + XMP metadata, SVG gets an RDF <metadata> " +
+    "block. Other formats are saved as-is. Returns the saved file path.",
+  {
+    id: z.string().describe("DOI URL or bare DOI."),
+    format: z
+      .enum(["png", "svg", "monotone_png", "monotone_svg", "detail_image1", "apng"])
+      .default("png"),
+    locale: localeSchema,
+    sourceLabel: sourceLabelSchema,
+    modified: z.boolean().default(false),
+    outPath: z.string().optional().describe("Absolute output path; default is a temp dir."),
+  },
+  async ({ id, format, locale, sourceLabel, modified, outPath }) => {
+    try {
+      const p = await getPictureById(id);
+      if (!p) return errorResult(`picture not found: ${id}`);
+      const file = p[format as AssetFormat];
+      if (!file || file === "-") return errorResult(`format "${format}" not available for ${id}`);
+
+      const { buf, mime } = await fetchImageBuffer(assetUrl(file));
+      const meta = attributionMeta(p, { locale, sourceLabel, modified });
+
+      let out: Buffer | string = buf;
+      let embedded = false;
+      if (mime === "image/png") {
+        out = embedPngAttribution(buf, meta);
+        embedded = true;
+      } else if (mime === "image/svg+xml" || file.endsWith(".svg")) {
+        out = embedSvgAttribution(buf.toString("utf8"), meta);
+        embedded = true;
+      }
+
+      const dest = outPath ?? join(OUT_DIR, file);
+      await writeFile(dest, out as any);
+      return textResult({
+        path: dest,
+        format,
+        embedded,
+        embedded_fields: embedded
+          ? ["Title", "Author", "Copyright", "Source", "License", "XMP (dc/xmpRights/cc)"]
+          : [],
+        citation: meta.credit,
+        license: "CC-BY-4.0",
+        note: embedded
+          ? "Credit is written into the file metadata; still show the visible credit when publishing."
+          : "This format cannot carry embedded metadata; you MUST show the visible credit.",
+      });
+    } catch (e) {
+      return errorResult(`download_asset failed: ${(e as Error).message}`);
     }
   }
 );

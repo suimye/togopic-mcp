@@ -22,8 +22,11 @@ This server enforces that in three layers:
 
 1. **Adjacency** — every image-bearing result carries a `citation` field.
 2. **Instructions** — the server and each tool tell the model the credit is mandatory.
-3. **Assets** *(planned, v0.2)* — embed attribution into the file (XMP/EXIF) so it
-   survives even if the model drops the text.
+3. **Embedded in the asset** — `download_asset` writes the credit into the file
+   itself: PNG gets iTXt text chunks (Title/Author/Copyright/Source/License) plus
+   an XMP packet (dc / xmpRights / cc); SVG gets an RDF `<metadata>` block. The
+   images placed by `build_pptx` are embedded the same way, so a picture pulled
+   out of the `.pptx` still carries its credit.
 
 ## Tools
 
@@ -32,6 +35,7 @@ This server enforces that in three layers:
 | `search_pictures` | Search by text/tag; each hit includes its credit. |
 | `get_picture` | Full metadata + all asset URLs + credit (text/html/bibtex). |
 | `get_picture_asset` | Resolve one asset format's download URL + credit. |
+| `download_asset` | Save an asset to disk with the credit **embedded in the file** (PNG iTXt+XMP / SVG RDF). |
 | `generate_reference` | Build a Reference block (Markdown/BibTeX/text) for many images. |
 | `build_figure` | **Paper-style figure page** (1+ images) with the credit **inside each figure legend**, plus Acknowledgements + References. `format: html` or `pdf`. Writes a file, returns its path. |
 | `build_pptx` | **PowerPoint deck**: one slide per image with the credit in a caption **legend** beneath it, plus a References slide. Writes a `.pptx`, returns its path. |
@@ -54,11 +58,22 @@ accept multiple `ids` and share the same options.
 
 ### PDF rendering
 
-`build_figure` with `format: "pdf"` prints via a locally installed
-Chrome/Chromium. Override the binary with `CHROME_PATH`. If none is found, use
-`format: "html"` and print the returned self-contained HTML yourself. Output
-directory defaults to a temp dir; override with `TOGOPIC_OUT_DIR` or per-call
-`outPath`.
+`build_figure` with `format: "pdf"` renders in this order:
+
+1. A locally installed Chrome/Chromium (fast, nothing to download). Override the
+   binary with `CHROME_PATH`.
+2. **Fallback:** if no Chrome is found, [puppeteer](https://pptr.dev) is used —
+   but only if you installed it. It is an **opt-in** extra (not a default
+   dependency) because its install downloads a bundled Chromium (~170 MB):
+
+   ```bash
+   npm install puppeteer
+   ```
+3. If neither is available, use `format: "html"` and print the returned
+   self-contained HTML yourself.
+
+Output directory defaults to a temp dir; override with `TOGOPIC_OUT_DIR` or
+per-call `outPath`.
 
 ## Setup
 

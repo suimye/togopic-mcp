@@ -32,7 +32,8 @@ function pngSize(buf: Buffer): { natW: number; natH: number } | undefined {
   return { natW: buf.readUInt32BE(16), natH: buf.readUInt32BE(20) };
 }
 
-export async function fetchImageAsDataUri(url: string): Promise<EmbeddedImage> {
+/** Fetch raw image bytes + mime (for embedding attribution before use). */
+export async function fetchImageBuffer(url: string): Promise<{ buf: Buffer; mime: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
@@ -42,10 +43,19 @@ export async function fetchImageAsDataUri(url: string): Promise<EmbeddedImage> {
     });
     if (!res.ok) throw new Error(`image fetch ${res.status} for ${url}`);
     const mime = res.headers.get("content-type")?.split(";")[0] || mimeFromUrl(url);
-    const buf = Buffer.from(await res.arrayBuffer());
-    const base64 = buf.toString("base64");
-    return { dataUri: `data:${mime};base64,${base64}`, base64, mime, ...pngSize(buf) };
+    return { buf: Buffer.from(await res.arrayBuffer()), mime };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Wrap raw bytes as a self-contained EmbeddedImage. */
+export function toEmbedded(buf: Buffer, mime: string): EmbeddedImage {
+  const base64 = buf.toString("base64");
+  return { dataUri: `data:${mime};base64,${base64}`, base64, mime, ...pngSize(buf) };
+}
+
+export async function fetchImageAsDataUri(url: string): Promise<EmbeddedImage> {
+  const { buf, mime } = await fetchImageBuffer(url);
+  return toEmbedded(buf, mime);
 }
