@@ -23,6 +23,9 @@ export const LICENSE_URL_EN = "https://creativecommons.org/licenses/by/4.0/deed.
 export const LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/";
 export const COPYRIGHT_HOLDER = "DBCLS TogoTV";
 
+/** Default source label; override per-call via opts.sourceLabel or env. */
+export const DEFAULT_SOURCE_LABEL = process.env.TOGOPIC_SOURCE_LABEL ?? "TogoTV";
+
 export interface CitationOptions {
   /** "ja" | "en" — controls wording and the license deed link. Default "en". */
   locale?: "ja" | "en";
@@ -84,7 +87,7 @@ function bibtexKey(p: Picture): string {
  */
 export function buildCitation(p: Picture, opts: CitationOptions = {}): CitationBundle {
   const locale = opts.locale ?? "en";
-  const source = opts.sourceLabel ?? "TogoTV";
+  const source = opts.sourceLabel ?? DEFAULT_SOURCE_LABEL;
   const year = citationYear(p);
   const doiUrl = p.id?.startsWith("http") ? p.id : `https://doi.org/${bareDoi(p.id)}`;
   const licenseDeed = locale === "ja" ? LICENSE_URL_JA : LICENSE_URL_EN;

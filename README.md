@@ -33,7 +33,32 @@ This server enforces that in three layers:
 | `get_picture` | Full metadata + all asset URLs + credit (text/html/bibtex). |
 | `get_picture_asset` | Resolve one asset format's download URL + credit. |
 | `generate_reference` | Build a Reference block (Markdown/BibTeX/text) for many images. |
+| `build_figure` | **Paper-style figure page** (1+ images) with the credit **inside each figure legend**, plus Acknowledgements + References. `format: html` or `pdf`. Writes a file, returns its path. |
+| `build_pptx` | **PowerPoint deck**: one slide per image with the credit in a caption **legend** beneath it, plus a References slide. Writes a `.pptx`, returns its path. |
 | `list_facets` | List filter values (tags, taxonomy) to refine searches. |
+
+### Deliverables: credit goes in the legend
+
+`build_figure` and `build_pptx` render ready-to-use figures/slides with the
+mandatory credit placed **in the figure legend / slide caption** (not just a
+loose reference), exactly where a journal or a talk expects attribution. Both
+accept multiple `ids` and share the same options.
+
+### Common citation options (all citation-producing tools)
+
+| Option | Values | Effect |
+|---|---|---|
+| `locale` | `en` \| `ja` | Wording and license deed link (`deed.en` / `deed.ja`). |
+| `sourceLabel` | string | Source name in the credit. Default `"TogoTV"`; pass `"Togo picture gallery"` for the gallery name. Env: `TOGOPIC_SOURCE_LABEL`. |
+| `modified` | boolean | Appends "modified / 改変あり" as CC-BY requires when you alter the image. |
+
+### PDF rendering
+
+`build_figure` with `format: "pdf"` prints via a locally installed
+Chrome/Chromium. Override the binary with `CHROME_PATH`. If none is found, use
+`format: "html"` and print the returned self-contained HTML yourself. Output
+directory defaults to a temp dir; override with `TOGOPIC_OUT_DIR` or per-call
+`outPath`.
 
 ## Setup
 

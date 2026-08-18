@@ -9,11 +9,48 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeFile } from "node:fs/promises";
+
 import { searchPictures, listPictures, getPictureById, getFacets, assetUrl } from "./api.js";
-import { buildCitation, buildReferenceMarkdown, plain } from "./citation.js";
+import { buildCitation, buildReferenceMarkdown, plain, bareDoi } from "./citation.js";
+import { fetchImageAsDataUri } from "./assets.js";
+import { buildFigureHtml, type FigureEntry } from "./figure.js";
+import { buildPptx } from "./pptx.js";
+import { htmlToPdf } from "./render.js";
 import type { AssetFormat, Picture } from "./types.js";
 
 const localeSchema = z.enum(["ja", "en"]).default("en");
+const sourceLabelSchema = z
+  .string()
+  .optional()
+  .describe('Source label in the credit. Default "TogoTV"; use "Togo picture gallery" for the gallery name.');
+
+const OUT_DIR = process.env.TOGOPIC_OUT_DIR ?? tmpdir();
+
+/** Fetch pictures + their PNG images for the given ids (for figure/pptx output). */
+async function resolveEntries(ids: string[]): Promise<{ entries: FigureEntry[]; missing: string[] }> {
+  const entries: FigureEntry[] = [];
+  const missing: string[] = [];
+  for (const id of ids) {
+    const p = await getPictureById(id);
+    if (!p || !p.png || p.png === "-") {
+      missing.push(id);
+      continue;
+    }
+    const image = await fetchImageAsDataUri(assetUrl(p.png));
+    entries.push({ picture: p, image });
+  }
+  return { entries, missing };
+}
+
+/** Safe output file name from the first DOI. */
+function outName(entries: FigureEntry[], ext: string): string {
+  const base = bareDoi(entries[0].picture.id).replace(/[^\w]+/g, "_") || "togopic";
+  const suffix = entries.length > 1 ? `_and_${entries.length - 1}_more` : "";
+  return join(OUT_DIR, `${base}${suffix}.${ext}`);
+}
 
 const server = new McpServer(
   { name: "togopic-mcp", version: "0.1.0" },
@@ -31,8 +68,8 @@ const server = new McpServer(
 );
 
 /** Compact, model-facing view of a picture with its credit attached. */
-function summarize(p: Picture, locale: "ja" | "en") {
-  const c = buildCitation(p, { locale });
+function summarize(p: Picture, locale: "ja" | "en", sourceLabel?: string) {
+  const c = buildCitation(p, { locale, sourceLabel });
   return {
     id: p.id,
     name: p.name,
@@ -63,14 +100,15 @@ server.tool(
     tag: z.string().optional().describe("Filter by an exact tag (other_tags)."),
     limit: z.number().int().min(1).max(100).default(20),
     locale: localeSchema,
+    sourceLabel: sourceLabelSchema,
   },
-  async ({ query, tag, limit, locale }) => {
+  async ({ query, tag, limit, locale, sourceLabel }) => {
     try {
       const res =
         query || tag
           ? await searchPictures({ text: query, tag, rows: limit })
           : await listPictures({ rows: limit });
-      const items = (res.data ?? []).map((p) => summarize(p, locale));
+      const items = (res.data ?? []).map((p) => summarize(p, locale, sourceLabel));
       return textResult({ count: items.length, items });
     } catch (e) {
       return errorResult(`search failed: ${(e as Error).message}`);
@@ -86,12 +124,13 @@ server.tool(
     id: z.string().describe("DOI URL or bare DOI, e.g. 10.7875/togopic.2026.036"),
     locale: localeSchema,
     modified: z.boolean().default(false).describe("Set true if you altered the image."),
+    sourceLabel: sourceLabelSchema,
   },
-  async ({ id, locale, modified }) => {
+  async ({ id, locale, modified, sourceLabel }) => {
     try {
       const p = await getPictureById(id);
       if (!p) return errorResult(`picture not found: ${id}`);
-      const c = buildCitation(p, { locale, modified });
+      const c = buildCitation(p, { locale, modified, sourceLabel });
       const formats: AssetFormat[] = [
         "png", "svg", "ai", "apng", "rotation",
         "obj_mtl_zip", "monotone_png", "monotone_svg", "detail_image1",
@@ -139,8 +178,9 @@ server.tool(
       .default("png"),
     locale: localeSchema,
     modified: z.boolean().default(false),
+    sourceLabel: sourceLabelSchema,
   },
-  async ({ id, format, locale, modified }) => {
+  async ({ id, format, locale, modified, sourceLabel }) => {
     try {
       const p = await getPictureById(id);
       if (!p) return errorResult(`picture not found: ${id}`);
@@ -148,7 +188,7 @@ server.tool(
       if (!file || file === "-") {
         return errorResult(`format "${format}" not available for ${id}`);
       }
-      const c = buildCitation(p, { locale, modified });
+      const c = buildCitation(p, { locale, modified, sourceLabel });
       return textResult({
         id: p.id,
         format,
@@ -174,8 +214,9 @@ server.tool(
     ids: z.array(z.string()).min(1).describe("DOI URLs or bare DOIs."),
     format: z.enum(["markdown", "bibtex", "text"]).default("markdown"),
     locale: localeSchema,
+    sourceLabel: sourceLabelSchema,
   },
-  async ({ ids, format, locale }) => {
+  async ({ ids, format, locale, sourceLabel }) => {
     try {
       const pics: Picture[] = [];
       const missing: string[] = [];
@@ -186,13 +227,14 @@ server.tool(
       }
       if (pics.length === 0) return errorResult(`no pictures found for: ${ids.join(", ")}`);
 
+      const opts = { locale, sourceLabel };
       let body: string;
       if (format === "bibtex") {
-        body = pics.map((p) => buildCitation(p, { locale }).bibtex).join("\n\n");
+        body = pics.map((p) => buildCitation(p, opts).bibtex).join("\n\n");
       } else if (format === "text") {
-        body = pics.map((p, i) => `${i + 1}. ${buildCitation(p, { locale }).text}`).join("\n");
+        body = pics.map((p, i) => `${i + 1}. ${buildCitation(p, opts).text}`).join("\n");
       } else {
-        body = buildReferenceMarkdown(pics, { locale });
+        body = buildReferenceMarkdown(pics, opts);
       }
       const note = missing.length ? `\n\n(not found: ${missing.join(", ")})` : "";
       return { content: [{ type: "text" as const, text: body + note }] };
@@ -211,6 +253,78 @@ server.tool(
       return textResult(await getFacets(key));
     } catch (e) {
       return errorResult(`list_facets failed: ${(e as Error).message}`);
+    }
+  }
+);
+
+server.tool(
+  "build_figure",
+  "Build a paper-style figure page for one or more pictures, with the mandatory " +
+    "CC-BY-4.0 credit placed INSIDE each figure legend, plus Acknowledgements and " +
+    "References. format:'html' returns self-contained HTML (and writes a file); " +
+    "format:'pdf' also renders a PDF via a local Chrome. Returns the output file path.",
+  {
+    ids: z.array(z.string()).min(1).describe("DOI URLs or bare DOIs, in figure order."),
+    format: z.enum(["html", "pdf"]).default("pdf"),
+    locale: localeSchema,
+    sourceLabel: sourceLabelSchema,
+    modified: z.boolean().default(false).describe("Set true if any image was altered."),
+    title: z.string().optional().describe("Optional document title above the figures."),
+    outPath: z.string().optional().describe("Absolute output path; default is a temp dir."),
+  },
+  async ({ ids, format, locale, sourceLabel, modified, title, outPath }) => {
+    try {
+      const { entries, missing } = await resolveEntries(ids);
+      if (entries.length === 0) return errorResult(`no usable pictures for: ${ids.join(", ")}`);
+      const html = buildFigureHtml(entries, { locale, sourceLabel, modified, title });
+
+      if (format === "html") {
+        const out = outPath ?? outName(entries, "html");
+        await writeFile(out, html, "utf8");
+        return textResult({ format, path: out, figures: entries.length, missing, html });
+      }
+      const out = outPath ?? outName(entries, "pdf");
+      await htmlToPdf(html, out);
+      return textResult({
+        format,
+        path: out,
+        figures: entries.length,
+        missing,
+        note: "Credit is embedded in every figure legend, Acknowledgements, and References.",
+      });
+    } catch (e) {
+      return errorResult(`build_figure failed: ${(e as Error).message}`);
+    }
+  }
+);
+
+server.tool(
+  "build_pptx",
+  "Build a PowerPoint (.pptx): one slide per picture with the image centered and the " +
+    "mandatory CC-BY-4.0 credit in a caption legend beneath it, plus a References slide. " +
+    "Returns the output .pptx file path.",
+  {
+    ids: z.array(z.string()).min(1).describe("DOI URLs or bare DOIs, one slide each."),
+    locale: localeSchema,
+    sourceLabel: sourceLabelSchema,
+    modified: z.boolean().default(false).describe("Set true if any image was altered."),
+    title: z.string().optional(),
+    outPath: z.string().optional().describe("Absolute .pptx output path; default is a temp dir."),
+  },
+  async ({ ids, locale, sourceLabel, modified, title, outPath }) => {
+    try {
+      const { entries, missing } = await resolveEntries(ids);
+      if (entries.length === 0) return errorResult(`no usable pictures for: ${ids.join(", ")}`);
+      const out = outPath ?? outName(entries, "pptx");
+      await buildPptx(entries, out, { locale, sourceLabel, modified, title });
+      return textResult({
+        path: out,
+        slides: entries.length,
+        missing,
+        note: "Credit is in each slide's caption legend and on the References slide.",
+      });
+    } catch (e) {
+      return errorResult(`build_pptx failed: ${(e as Error).message}`);
     }
   }
 );
