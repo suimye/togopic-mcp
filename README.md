@@ -8,7 +8,9 @@ every image**, so illustrations never reach a paper, slide, or PDF without their
 attribution.
 
 - Read-only wrapper over the public `togotv-api.dbcls.jp` API. **No credentials.**
-- Transport: **stdio** (Claude Desktop / Claude Code). HTTP can be added later.
+- Transport: **stdio** (local, per user) or **Streamable HTTP** (host once, share a
+  URL). See [Hosting an HTTP endpoint](#hosting-an-http-endpoint) and
+  [`DEPLOY.md`](DEPLOY.md).
 
 ---
 
@@ -185,6 +187,32 @@ This server enforces that in three layers:
    out of the `.pptx` still carries its credit.
 
 ---
+
+## Hosting an HTTP endpoint
+
+Instead of each user running stdio locally, host it once and share a URL (also
+required for claude.ai custom connectors). The `dist/http.js` entry serves a
+stateless **Streamable HTTP** endpoint.
+
+```bash
+# local
+npm run build && npm run start:http     # → http://localhost:3000/mcp
+
+# Docker (bundles Chromium + Japanese fonts, so PDFs render server-side)
+docker build -t togopic-mcp .
+docker run -p 3000:3000 togopic-mcp
+```
+
+Over HTTP, the file-producing tools return the generated PDF/PPTX/PNG **inline as
+base64** (a remote client can't read a local path); `TOGOPIC_RETURN_BYTES=1` is
+the default in HTTP mode. Register it in Claude Code with:
+
+```bash
+claude mcp add --transport http togopic https://YOUR-HOST/mcp
+```
+
+See [`DEPLOY.md`](DEPLOY.md) for mounting it at a path like
+`https://togotv.dbcls.jp/mcp` behind nginx or CloudFront.
 
 ## Development
 

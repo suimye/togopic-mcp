@@ -10,8 +10,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { writeFile } from "node:fs/promises";
+import { join, basename } from "node:path";
+import { writeFile, readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 import { searchPictures, listPictures, getPictureById, getFacets, assetUrl } from "./api.js";
 import { buildCitation, buildReferenceMarkdown, plain, bareDoi } from "./citation.js";
@@ -60,7 +61,30 @@ function outName(entries: FigureEntry[], ext: string): string {
   return join(OUT_DIR, `${base}${suffix}.${ext}`);
 }
 
-const server = new McpServer(
+/** When served over HTTP the client is remote, so a local file path is useless;
+ *  return the generated file inline as a base64 resource instead. Stdio keeps
+ *  returning the path (local file access). Toggle with TOGOPIC_RETURN_BYTES=1.
+ *  Read at call time so the HTTP entry can set the env after this module loads. */
+async function fileResult(path: string, mimeType: string, meta: Record<string, unknown>) {
+  if (process.env.TOGOPIC_RETURN_BYTES !== "1") {
+    return { content: [{ type: "text" as const, text: JSON.stringify({ ...meta, path }, null, 2) }] };
+  }
+  const blob = (await readFile(path)).toString("base64");
+  return {
+    content: [
+      { type: "text" as const, text: JSON.stringify({ ...meta, filename: basename(path) }, null, 2) },
+      {
+        type: "resource" as const,
+        resource: { uri: `file:///${basename(path)}`, mimeType, blob },
+      },
+    ],
+  };
+}
+
+/** Build a fully-registered MCP server. A fresh instance is created per stdio
+ *  process, and per request in the stateless HTTP entry point. */
+export function createServer(): McpServer {
+  const server = new McpServer(
   { name: "togopic-mcp", version: "0.1.0" },
   {
     instructions:
@@ -294,9 +318,8 @@ server.tool(
       }
       const out = outPath ?? outName(entries, "pdf");
       await htmlToPdf(html, out);
-      return textResult({
+      return fileResult(out, "application/pdf", {
         format,
-        path: out,
         figures: entries.length,
         missing,
         note: "Credit is embedded in every figure legend, Acknowledgements, and References.",
@@ -331,16 +354,19 @@ server.tool(
       if (entries.length === 0) return errorResult(`no usable pictures for: ${ids.join(", ")}`);
       const out = outPath ?? outName(entries, "pptx");
       await buildPptx(entries, out, { locale, sourceLabel, modified, title, creditPlacement });
-      return textResult({
-        path: out,
-        slides: entries.length,
-        missing,
-        creditPlacement,
-        note:
-          creditPlacement === "corner"
-            ? "Compact license note is in each slide's bottom-right corner; full credits on the References slide."
-            : "Credit is in each slide's caption legend and on the References slide.",
-      });
+      return fileResult(
+        out,
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        {
+          slides: entries.length,
+          missing,
+          creditPlacement,
+          note:
+            creditPlacement === "corner"
+              ? "Compact license note is in each slide's bottom-right corner; full credits on the References slide."
+              : "Credit is in each slide's caption legend and on the References slide.",
+        }
+      );
     } catch (e) {
       return errorResult(`build_pptx failed: ${(e as Error).message}`);
     }
@@ -384,8 +410,7 @@ server.tool(
 
       const dest = outPath ?? join(OUT_DIR, file);
       await writeFile(dest, out as any);
-      return textResult({
-        path: dest,
+      return fileResult(dest, mime, {
         format,
         embedded,
         embedded_fields: embedded
@@ -403,14 +428,22 @@ server.tool(
   }
 );
 
+  return server;
+}
+
 async function main() {
+  const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // stderr is safe for logs; stdout is reserved for the MCP protocol.
   console.error("togopic-mcp running on stdio");
 }
 
-main().catch((err) => {
-  console.error("fatal:", err);
-  process.exit(1);
-});
+// Only auto-start stdio when run directly (so http.ts can import createServer).
+const isEntry = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isEntry) {
+  main().catch((err) => {
+    console.error("fatal:", err);
+    process.exit(1);
+  });
+}

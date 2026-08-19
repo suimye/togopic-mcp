@@ -67,6 +67,8 @@ export async function htmlToPdf(html: string, outPath: string): Promise<string> 
       const args = [
         "--headless",
         "--disable-gpu",
+        "--no-sandbox", // required when running as chromium in a container
+        "--disable-dev-shm-usage",
         "--no-pdf-header-footer",
         `--print-to-pdf=${outPath}`,
         `file://${htmlPath}`,
