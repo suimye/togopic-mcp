@@ -138,7 +138,15 @@ legend, an Acknowledgement, or a slide corner.
 | `generate_reference` | Build a Reference block (Markdown/BibTeX/text) for many images. |
 | `build_figure` | **Paper-style figure page** (1+ images) with the credit **inside each figure legend**, plus Acknowledgements + References. `format: html` or `pdf`. Writes a file, returns its path. |
 | `build_pptx` | **PowerPoint deck**: one slide per image. Default: small license note **bottom-right** (`creditPlacement: "corner"`); `"caption"` for a full legend. Plus a References slide. Writes a `.pptx`, returns its path. |
+| `build_diagram` | **Flow schematic ("ポンチ絵")**: combines several illustrations into one slide with a deterministic snake-grid auto-layout (no overlaps, arrows never diagonal), labeled arrows between steps, and all credits aggregated into a References block. Each step takes an illustration `doi` or stays a labeled placeholder. Writes a `.pptx`. |
 | `list_facets` | List filter values (tags, taxonomy) to refine searches. |
+
+### Resilience to the upstream API
+
+`search_pictures` / `list_pictures` self-heal around a known togotv-api bug where
+picture queries 500 whenever `rows>=2`: they fall back to fetching `rows=1` pages
+and de-duplicating until enough results are collected. When the upstream API is
+fixed, the normal multi-row path is used again automatically.
 
 ### Common options (all citation-producing tools)
 

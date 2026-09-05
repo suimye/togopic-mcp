@@ -14,6 +14,10 @@ dist/
 *secret*
 *credential*
 
+# local-only ops docs (production/infra specifics — never publish to this repo)
+local/
+*.local.md
+
 # OS / editor
 .DS_Store
 Thumbs.db

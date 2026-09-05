@@ -20,6 +20,7 @@ import { fetchImageBuffer, toEmbedded } from "./assets.js";
 import { attributionMeta, embedPngAttribution, embedSvgAttribution } from "./embed.js";
 import { buildFigureHtml, type FigureEntry } from "./figure.js";
 import { buildPptx } from "./pptx.js";
+import { buildDiagram, type DiagramStep } from "./diagram.js";
 import { htmlToPdf } from "./render.js";
 import type { AssetFormat, Picture } from "./types.js";
 
@@ -424,6 +425,82 @@ server.tool(
       });
     } catch (e) {
       return errorResult(`download_asset failed: ${(e as Error).message}`);
+    }
+  }
+);
+
+server.tool(
+  "build_diagram",
+  "Compose a flow schematic ('ポンチ絵') from gallery illustrations: nodes laid out " +
+    "with a deterministic snake-grid auto-layout (no overlaps, arrows never diagonal), " +
+    "connected by labeled arrows, with all image credits aggregated into a References " +
+    "block. Each step may reference an illustration by DOI (fetched with its credit " +
+    "embedded) or be a labeled placeholder when no suitable illustration exists. Writes " +
+    "a .pptx and returns its path.",
+  {
+    title: z.string().describe("Diagram title."),
+    subtitle: z.string().optional(),
+    steps: z
+      .array(
+        z.object({
+          label: z.string().describe("Node caption."),
+          doi: z.string().optional().describe("DOI of the illustration for this node; omit for a placeholder."),
+          slot: z.string().optional().describe("Placeholder text when no doi (default: the label)."),
+        })
+      )
+      .min(2)
+      .describe("Nodes in flow order."),
+    edges: z
+      .array(z.string())
+      .optional()
+      .describe("Arrow labels between consecutive steps (length = steps-1)."),
+    locale: localeSchema,
+    sourceLabel: sourceLabelSchema,
+    modified: z.boolean().default(false),
+    outPath: z.string().optional(),
+  },
+  async ({ title, subtitle, steps, edges, locale, sourceLabel, modified, outPath }) => {
+    try {
+      const opts = { locale, sourceLabel, modified };
+      const resolved: DiagramStep[] = [];
+      const missing: string[] = [];
+      const citations: string[] = [];
+      for (const st of steps) {
+        if (st.doi) {
+          const pic = await getPictureById(st.doi);
+          if (pic && pic.png && pic.png !== "-") {
+            const { buf, mime } = await fetchImageBuffer(assetUrl(pic.png));
+            const meta = attributionMeta(pic, opts);
+            const image = toEmbedded(mime === "image/png" ? embedPngAttribution(buf, meta) : buf, mime);
+            const citation = buildCitation(pic, opts).text;
+            resolved.push({ label: st.label, image, citation });
+            citations.push(citation);
+            continue;
+          }
+          missing.push(st.doi);
+        }
+        resolved.push({ label: st.label, slot: st.slot ?? `[${st.label}]` });
+      }
+      const first = steps.find((s) => s.doi)?.doi;
+      const base = first ? bareDoi(first).replace(/[^\w]+/g, "_") : "diagram";
+      const out = outPath ?? join(OUT_DIR, `${base}_diagram.pptx`);
+      await buildDiagram({ title, subtitle, steps: resolved, edges }, out);
+      return fileResult(
+        out,
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        {
+          title,
+          nodes: steps.length,
+          with_images: citations.length,
+          placeholders: steps.length - citations.length,
+          missing_doi: missing,
+          note:
+            "Arrow labels are plain text (no background); credits for all placed images are " +
+            "in the References block. Placeholder nodes need an illustration DOI or stay labeled.",
+        }
+      );
+    } catch (e) {
+      return errorResult(`build_diagram failed: ${(e as Error).message}`);
     }
   }
 );

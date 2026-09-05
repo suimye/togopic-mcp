@@ -30,6 +30,45 @@ async function getJson<T>(url: string): Promise<T> {
 
 const PICTURES = "target=pictures";
 
+type UrlFor = (from: number, rows: number) => string;
+
+/**
+ * togotv-api currently 500s on picture queries whenever rows>=2 (a server bug;
+ * rows=1 and id-lookup work). This fetches rows=1 pages and de-duplicates by id
+ * until it has `want` results (or the index is exhausted). It is a fallback, so
+ * once the API is fixed the normal multi-row path is used again automatically.
+ */
+async function harvestRows(makeUrl: UrlFor, from: number, want: number): Promise<SearchResponse> {
+  const seen = new Map<string, Picture>();
+  let numfound: number | undefined;
+  const maxReq = Math.min(90, want * 3 + 30);
+  for (let i = 0, f = from; i < maxReq && seen.size < want; i++, f++) {
+    let r: SearchResponse;
+    try {
+      r = await getJson<SearchResponse>(makeUrl(f, 1));
+    } catch {
+      continue;
+    }
+    const nf = (r.numfound ?? r.total) as number | undefined;
+    if (typeof nf === "number") numfound = nf;
+    if (numfound === 0) break;
+    const d = r.data?.[0];
+    if (d && d.id && !seen.has(d.id)) seen.set(d.id, d);
+    if (numfound !== undefined && seen.size >= Math.min(want, numfound)) break;
+    if (numfound !== undefined && f >= numfound + 5) break;
+  }
+  return { data: [...seen.values()], numfound: numfound ?? seen.size, total: seen.size };
+}
+
+/** Try the requested rows in one call; on failure, harvest rows=1 pages. */
+async function getWithRowFallback(makeUrl: UrlFor, from: number, rows: number): Promise<SearchResponse> {
+  try {
+    return await getJson<SearchResponse>(makeUrl(from, rows));
+  } catch {
+    return harvestRows(makeUrl, from, rows);
+  }
+}
+
 /** Full-text search over pictures. */
 export async function searchPictures(params: {
   text?: string;
@@ -39,13 +78,16 @@ export async function searchPictures(params: {
 }): Promise<SearchResponse> {
   const from = params.from ?? 0;
   const rows = Math.min(params.rows ?? 20, 100);
-  const qs = new URLSearchParams();
-  qs.set("target", "pictures");
-  if (params.text) qs.set("text", params.text);
-  if (params.tag) qs.set("other_tags", params.tag);
-  qs.set("from", String(from));
-  qs.set("rows", String(rows));
-  return getJson<SearchResponse>(`${API_BASE}/search?${qs.toString()}`);
+  const make: UrlFor = (f, r) => {
+    const qs = new URLSearchParams();
+    qs.set("target", "pictures");
+    if (params.text) qs.set("text", params.text);
+    if (params.tag) qs.set("other_tags", params.tag);
+    qs.set("from", String(f));
+    qs.set("rows", String(r));
+    return `${API_BASE}/search?${qs.toString()}`;
+  };
+  return getWithRowFallback(make, from, rows);
 }
 
 /** Newest-first listing of pictures. */
@@ -55,9 +97,8 @@ export async function listPictures(params: {
 }): Promise<SearchResponse> {
   const from = params.from ?? 0;
   const rows = Math.min(params.rows ?? 40, 100);
-  return getJson<SearchResponse>(
-    `${API_BASE}/entries?${PICTURES}&from=${from}&rows=${rows}`
-  );
+  const make: UrlFor = (f, r) => `${API_BASE}/entries?${PICTURES}&from=${f}&rows=${r}`;
+  return getWithRowFallback(make, from, rows);
 }
 
 /** Fetch a single picture by DOI id (URL or bare DOI). */
