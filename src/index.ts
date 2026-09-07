@@ -16,8 +16,9 @@ import { pathToFileURL } from "node:url";
 
 import { searchPictures, listPictures, getPictureById, getFacets, assetUrl } from "./api.js";
 import { buildCitation, buildReferenceMarkdown, plain, bareDoi } from "./citation.js";
-import { fetchImageBuffer, toEmbedded } from "./assets.js";
+import { fetchImageBuffer, toEmbedded, loadImageFile, fetchImageAsDataUri } from "./assets.js";
 import { attributionMeta, embedPngAttribution, embedSvgAttribution } from "./embed.js";
+import { externalCredit } from "./sources.js";
 import { buildFigureHtml, type FigureEntry } from "./figure.js";
 import { buildPptx } from "./pptx.js";
 import { buildDiagram, type DiagramStep } from "./diagram.js";
@@ -434,9 +435,11 @@ server.tool(
   "Compose a flow schematic ('ポンチ絵') from gallery illustrations: nodes laid out " +
     "with a deterministic snake-grid auto-layout (no overlaps, arrows never diagonal), " +
     "connected by labeled arrows, with all image credits aggregated into a References " +
-    "block. Each step may reference an illustration by DOI (fetched with its credit " +
-    "embedded) or be a labeled placeholder when no suitable illustration exists. Writes " +
-    "a .pptx and returns its path.",
+    "block. Each step may reference a Togo picture gallery illustration by DOI (fetched " +
+    "with its mandatory CC-BY credit) OR an external image via image_path/image_url with " +
+    "source:'bioart' (NIH BioArt Source, free to use — credit optional) or 'external', OR " +
+    "be a labeled placeholder. Credits are kept source-correct: never CC-BY on a BioArt " +
+    "image. Writes a .pptx and returns its path.",
   {
     title: z.string().describe("Diagram title."),
     subtitle: z.string().optional(),
@@ -444,12 +447,20 @@ server.tool(
       .array(
         z.object({
           label: z.string().describe("Node caption."),
-          doi: z.string().optional().describe("DOI of the illustration for this node; omit for a placeholder."),
-          slot: z.string().optional().describe("Placeholder text when no doi (default: the label)."),
+          doi: z.string().optional().describe("Togo picture gallery DOI (fetched with its mandatory CC-BY credit)."),
+          image_path: z.string().optional().describe("Local image file, e.g. a BioArt asset the user downloaded."),
+          image_url: z.string().optional().describe("Remote image URL (for a non-Togo source)."),
+          source: z
+            .enum(["bioart", "external"])
+            .optional()
+            .describe('Credit source for image_path/image_url: "bioart" = NIH BioArt Source (free to use), "external" = user-supplied.'),
+          title: z.string().optional().describe("Illustration title, for the external credit line."),
+          credit: z.string().optional().describe("Explicit credit text overriding the generated one."),
+          slot: z.string().optional().describe("Placeholder text when no image (default: the label)."),
         })
       )
       .min(2)
-      .describe("Nodes in flow order."),
+      .describe("Nodes in flow order. Mix Togo DOIs and external (e.g. BioArt) images freely."),
     edges: z
       .array(z.string())
       .optional()
@@ -466,6 +477,7 @@ server.tool(
       const missing: string[] = [];
       const citations: string[] = [];
       for (const st of steps) {
+        // 1) Togo picture gallery (DOI): fetched + CC-BY credit embedded.
         if (st.doi) {
           const pic = await getPictureById(st.doi);
           if (pic && pic.png && pic.png !== "-") {
@@ -478,7 +490,24 @@ server.tool(
             continue;
           }
           missing.push(st.doi);
+          resolved.push({ label: st.label, slot: st.slot ?? `[${st.label}]` });
+          continue;
         }
+        // 2) External image (e.g. BioArt): source-aware credit, no CC-BY.
+        if (st.image_path || st.image_url) {
+          try {
+            const image = st.image_path
+              ? await loadImageFile(st.image_path)
+              : await fetchImageAsDataUri(st.image_url as string);
+            const credit = externalCredit({ source: st.source, title: st.title ?? st.label, credit: st.credit, locale }).text;
+            resolved.push({ label: st.label, image, citation: credit });
+            citations.push(credit);
+            continue;
+          } catch {
+            missing.push(st.image_path ?? st.image_url ?? st.label);
+          }
+        }
+        // 3) Placeholder.
         resolved.push({ label: st.label, slot: st.slot ?? `[${st.label}]` });
       }
       const first = steps.find((s) => s.doi)?.doi;

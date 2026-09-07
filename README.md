@@ -141,6 +141,20 @@ legend, an Acknowledgement, or a slide corner.
 | `build_diagram` | **Flow schematic ("ポンチ絵")**: combines several illustrations into one slide with a deterministic snake-grid auto-layout (no overlaps, arrows never diagonal), labeled arrows between steps, and all credits aggregated into a References block. Each step takes an illustration `doi` or stays a labeled placeholder. Writes a `.pptx`. |
 | `list_facets` | List filter values (tags, taxonomy) to refine searches. |
 
+### Illustration sources (Togo + BioArt)
+
+`build_diagram` steps can mix sources, and credit is kept **source-correct**:
+
+| Source | How to use | License / credit |
+|---|---|---|
+| **Togo picture gallery** | `doi` on the step | CC-BY-4.0, © DBCLS TogoTV — **credit required** (fetched + embedded automatically) |
+| **NIH BioArt Source** | `image_path` (a file you downloaded from [bioart.niaid.nih.gov](https://bioart.niaid.nih.gov)) + `source: "bioart"` | Free to use (public domain) — credit is a **courtesy**, shown as "NIH BioArt Source" |
+| **Other** | `image_path`/`image_url` + `source: "external"` (+ optional `credit`) | Whatever you specify |
+
+BioArt has no public API/DOI (it's a static site), so its images are supplied as
+local files rather than fetched by id. A CC-BY / DBCLS credit is **never** applied
+to a BioArt or external image; each item's References line reflects its own source.
+
 ### Resilience to the upstream API
 
 `search_pictures` / `list_pictures` self-heal around a known togotv-api bug where

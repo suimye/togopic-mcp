@@ -59,3 +59,12 @@ export async function fetchImageAsDataUri(url: string): Promise<EmbeddedImage> {
   const { buf, mime } = await fetchImageBuffer(url);
   return toEmbedded(buf, mime);
 }
+
+/** Load a local image file (e.g. a BioArt asset the user downloaded). */
+export async function loadImageFile(path: string): Promise<EmbeddedImage> {
+  const { readFile } = await import("node:fs/promises");
+  const buf = await readFile(path);
+  const ext = path.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+  const mime = MIME_BY_EXT[ext] ?? "image/png";
+  return toEmbedded(buf, mime);
+}
