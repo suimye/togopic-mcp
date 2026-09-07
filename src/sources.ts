@@ -46,12 +46,14 @@ export function externalCredit(opts: ExternalCreditInput = {}): SourceCredit {
 
   if (opts.source === "bioart") {
     const t = title ? (isJa ? `「${title}」の画像は ` : `The image of "${title}" is `) : isJa ? "画像は " : "Image ";
+    // BioArt is free/public-domain so credit is not legally required, but by
+    // policy we ALWAYS write the NIH credit — hence required: true here.
     return {
       text: isJa
-        ? `${t}NIH BioArt Source (NIH/NIAID) より（自由利用可）。${BIOART_URL}`
-        : `${t}from NIH BioArt Source (NIH/NIAID), free to use. ${BIOART_URL}`,
-      required: false,
-      license: "NIH BioArt Source (free to use)",
+        ? `${t}NIH BioArt Source (NIH/NIAID) より。${BIOART_URL}`
+        : `${t}from NIH BioArt Source (NIH/NIAID). ${BIOART_URL}`,
+      required: true,
+      license: "NIH BioArt Source",
       url: BIOART_URL,
     };
   }

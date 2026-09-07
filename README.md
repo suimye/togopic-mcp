@@ -148,12 +148,16 @@ legend, an Acknowledgement, or a slide corner.
 | Source | How to use | License / credit |
 |---|---|---|
 | **Togo picture gallery** | `doi` on the step | CC-BY-4.0, © DBCLS TogoTV — **credit required** (fetched + embedded automatically) |
-| **NIH BioArt Source** | `image_path` (a file you downloaded from [bioart.niaid.nih.gov](https://bioart.niaid.nih.gov)) + `source: "bioart"` | Free to use (public domain) — credit is a **courtesy**, shown as "NIH BioArt Source" |
+| **NIH BioArt Source** | `image_url` (the download link) **or** `image_path` (a saved file) + `source: "bioart"` | Free to use — the **NIH BioArt Source credit is always written** (by policy) |
 | **Other** | `image_path`/`image_url` + `source: "external"` (+ optional `credit`) | Whatever you specify |
 
-BioArt has no public API/DOI (it's a static site), so its images are supplied as
-local files rather than fetched by id. A CC-BY / DBCLS credit is **never** applied
-to a BioArt or external image; each item's References line reflects its own source.
+BioArt has **no public API/DOI** (it's a static, `noindex` site), so its images
+can't be searched or fetched by id — you point the tool at a specific image. To
+keep friction low, prefer **`image_url`**: on [bioart.niaid.nih.gov](https://bioart.niaid.nih.gov)
+find the asset, copy its download link, and pass it as `image_url` — no saving to
+disk first. (An assistant driving a browser can also open BioArt, search, and hand
+back the download URL on demand.) A CC-BY / DBCLS credit is **never** applied to a
+BioArt or external image; each item's References line reflects its own source.
 
 ### Resilience to the upstream API
 
