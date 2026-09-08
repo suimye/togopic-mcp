@@ -19,6 +19,7 @@ import { buildCitation, buildReferenceMarkdown, plain, bareDoi } from "./citatio
 import { fetchImageBuffer, toEmbedded, loadImageFile, fetchImageAsDataUri, type EmbeddedImage } from "./assets.js";
 import { attributionMeta, embedPngAttribution, embedSvgAttribution } from "./embed.js";
 import { externalCredit } from "./sources.js";
+import { fetchBioArt } from "./bioart.js";
 import { buildFigureHtml, type FigureEntry } from "./figure.js";
 import { buildPptx } from "./pptx.js";
 import { buildDiagram, type DiagramStep } from "./diagram.js";
@@ -479,7 +480,8 @@ server.tool(
         z.object({
           label: z.string().describe("Node caption."),
           doi: z.string().optional().describe("Togo picture gallery DOI (fetched with its mandatory CC-BY credit)."),
-          image_path: z.string().optional().describe("Local image file, e.g. a BioArt asset the user downloaded."),
+          bioart_id: z.string().optional().describe('NIH BioArt id ("708", "BIOART-000708" or a /bioart/708 URL) — fetched automatically with the official NIAID citation.'),
+          image_path: z.string().optional().describe("Local image file for any other source."),
           image_url: z.string().optional().describe("Remote image URL (for a non-Togo source)."),
           source: z
             .enum(["bioart", "external"])
@@ -524,7 +526,19 @@ server.tool(
           resolved.push({ label: st.label, slot: st.slot ?? `[${st.label}]` });
           continue;
         }
-        // 2) External image (e.g. BioArt): source-aware credit, no CC-BY.
+        // 2) NIH BioArt by id: resolved automatically, official NIAID citation.
+        if (st.bioart_id) {
+          try {
+            const asset = await fetchBioArt(st.bioart_id, st.title);
+            const image = await fetchImageAsDataUri(asset.imageUrl);
+            resolved.push({ label: st.label, image, citation: asset.citation });
+            citations.push(asset.citation);
+            continue;
+          } catch {
+            missing.push(st.bioart_id);
+          }
+        }
+        // 3) Any other external image: source-aware credit, no CC-BY.
         if (st.image_path || st.image_url) {
           try {
             const image = st.image_path
@@ -575,7 +589,8 @@ server.tool(
     "rect:[x,y,w,h] for a region. Writes a .pptx and returns its path.",
   {
     doi: z.string().optional().describe("Togo picture gallery DOI (CC-BY credit added automatically)."),
-    image_url: z.string().optional().describe("Image URL for a non-Togo source (e.g. a BioArt download link)."),
+    bioart_id: z.string().optional().describe('NIH BioArt id ("708", "BIOART-000708" or a /bioart/708 URL) — fetched with the official NIAID citation.'),
+    image_url: z.string().optional().describe("Image URL for any other source."),
     image_path: z.string().optional().describe("Local image file for a non-Togo source."),
     source: z.enum(["bioart", "external"]).optional(),
     title: z.string().optional().describe("Slide title; also the title used in an external credit."),
@@ -587,7 +602,7 @@ server.tool(
     modified: z.boolean().default(false),
     outPath: z.string().optional(),
   },
-  async ({ doi, image_url, image_path, source, title, caption, credit, annotations, locale, sourceLabel, modified, outPath }) => {
+  async ({ doi, bioart_id, image_url, image_path, source, title, caption, credit, annotations, locale, sourceLabel, modified, outPath }) => {
     try {
       const anns = (annotations ?? []) as Annotation[];
       // A close-up displays a cropped portion, so CC-BY "indicate changes" applies.
@@ -604,11 +619,16 @@ server.tool(
         image = toEmbedded(mime === "image/png" ? embedPngAttribution(buf, attributionMeta(pic, opts)) : buf, mime);
         creditText = buildCitation(pic, opts).text;
         base = bareDoi(doi).replace(/[^\w]+/g, "_");
+      } else if (bioart_id) {
+        const asset = await fetchBioArt(bioart_id, title);
+        image = await fetchImageAsDataUri(asset.imageUrl);
+        creditText = asset.citation;
+        base = asset.bioartId;
       } else if (image_path || image_url) {
         image = image_path ? await loadImageFile(image_path) : await fetchImageAsDataUri(image_url as string);
         creditText = externalCredit({ source, title, credit, locale }).text;
       } else {
-        return errorResult("provide one of: doi, image_url, image_path");
+        return errorResult("provide one of: doi, bioart_id, image_url, image_path");
       }
 
       const out = outPath ?? join(OUT_DIR, `${base}_annotated.pptx`);

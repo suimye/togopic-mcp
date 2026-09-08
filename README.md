@@ -167,16 +167,23 @@ automatically marked as modified ("改変あり" / "modified") for Togo images.
 | Source | How to use | License / credit |
 |---|---|---|
 | **Togo picture gallery** | `doi` on the step | CC-BY-4.0, © DBCLS TogoTV — **credit required** (fetched + embedded automatically) |
-| **NIH BioArt Source** | `image_url` (the download link) **or** `image_path` (a saved file) + `source: "bioart"` | Free to use — the **NIH BioArt Source credit is always written** (by policy) |
+| **NIH BioArt Source** | **`bioart_id`** — just the id (`"708"`, `"BIOART-000708"`, or a `/bioart/708` URL). Resolved automatically. | Public Domain — the **official NIAID citation is always written** |
 | **Other** | `image_path`/`image_url` + `source: "external"` (+ optional `credit`) | Whatever you specify |
 
-BioArt has **no public API/DOI** (it's a static, `noindex` site), so its images
-can't be searched or fetched by id — you point the tool at a specific image. To
-keep friction low, prefer **`image_url`**: on [bioart.niaid.nih.gov](https://bioart.niaid.nih.gov)
-find the asset, copy its download link, and pass it as `image_url` — no saving to
-disk first. (An assistant driving a browser can also open BioArt, search, and hand
-back the download URL on demand.) A CC-BY / DBCLS credit is **never** applied to a
-BioArt or external image; each item's References line reflects its own source.
+BioArt has no *documented* API, but every asset has a stable id, a
+server-rendered detail page (`/bioart/{id}`) and a public image endpoint
+(`/api/bioarts/{id}/files/{fileId}`). togopic-mcp uses those: pass **`bioart_id`**
+and the title, license and image are fetched for you, credited with NIAID's own
+citation format:
+
+> NIAID Visual & Medical Arts. (date). *Title*. NIAID NIH BIOART Source.
+> bioart.niaid.nih.gov/bioart/708 (Public Domain)
+
+**Searching** BioArt still needs the website (its result list is client-rendered,
+so there is no query endpoint) — find the asset on
+[bioart.niaid.nih.gov](https://bioart.niaid.nih.gov), then hand over its id.
+A CC-BY / DBCLS credit is **never** applied to a BioArt or external image; each
+item's References line reflects its own source.
 
 ### Resilience to the upstream API
 
