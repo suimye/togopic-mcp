@@ -16,12 +16,13 @@ import { pathToFileURL } from "node:url";
 
 import { searchPictures, listPictures, getPictureById, getFacets, assetUrl } from "./api.js";
 import { buildCitation, buildReferenceMarkdown, plain, bareDoi } from "./citation.js";
-import { fetchImageBuffer, toEmbedded, loadImageFile, fetchImageAsDataUri } from "./assets.js";
+import { fetchImageBuffer, toEmbedded, loadImageFile, fetchImageAsDataUri, type EmbeddedImage } from "./assets.js";
 import { attributionMeta, embedPngAttribution, embedSvgAttribution } from "./embed.js";
 import { externalCredit } from "./sources.js";
 import { buildFigureHtml, type FigureEntry } from "./figure.js";
 import { buildPptx } from "./pptx.js";
 import { buildDiagram, type DiagramStep } from "./diagram.js";
+import { buildAnnotatedImage, hasCloseup, type Annotation } from "./annotate.js";
 import { htmlToPdf } from "./render.js";
 import type { AssetFormat, Picture } from "./types.js";
 
@@ -32,6 +33,36 @@ const sourceLabelSchema = z
   .describe('Source label in the credit. Default "TogoTV"; use "Togo picture gallery" for the gallery name.');
 
 const OUT_DIR = process.env.TOGOPIC_OUT_DIR ?? tmpdir();
+
+/** Annotation shapes drawn on top of an illustration (coords are 0-1 fractions). */
+const annotationSchema = z.union([
+  z.object({
+    type: z.literal("callout"),
+    text: z.string(),
+    at: z.tuple([z.number(), z.number()]).describe("[x,y] point on the image, 0-1"),
+    place: z.enum(["top", "bottom", "left", "right"]).optional(),
+    style: z.enum(["leader", "wedge"]).optional(),
+  }),
+  z.object({
+    type: z.literal("marker"),
+    at: z.tuple([z.number(), z.number()]),
+    label: z.string().optional(),
+    radius: z.number().optional(),
+  }),
+  z.object({
+    type: z.literal("highlight"),
+    rect: z.tuple([z.number(), z.number(), z.number(), z.number()]).describe("[x,y,w,h] region, 0-1"),
+    shape: z.enum(["rect", "ellipse"]).optional(),
+    label: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("closeup"),
+    rect: z.tuple([z.number(), z.number(), z.number(), z.number()]).describe("[x,y,w,h] region to magnify, 0-1"),
+    scale: z.number().optional(),
+    label: z.string().optional(),
+    shape: z.enum(["rect", "ellipse"]).optional(),
+  }),
+]);
 
 /** Fetch pictures + their PNG images for the given ids (for figure/pptx output).
  *  The PNG bytes carry embedded attribution (layer 3), so any media extracted
@@ -530,6 +561,73 @@ server.tool(
       );
     } catch (e) {
       return errorResult(`build_diagram failed: ${(e as Error).message}`);
+    }
+  }
+);
+
+server.tool(
+  "annotate_image",
+  "Annotate ONE illustration without altering it: speech-bubble callouts with leader " +
+    "lines, ring markers, translucent highlights, and loupe close-ups. A close-up " +
+    "re-inserts the same image bytes with a PowerPoint display-level crop (srcRect), so " +
+    "the original asset is never re-encoded and the crop stays editable/undoable in " +
+    "PowerPoint. Coordinates are fractions (0-1) of the image: at:[x,y] for a point, " +
+    "rect:[x,y,w,h] for a region. Writes a .pptx and returns its path.",
+  {
+    doi: z.string().optional().describe("Togo picture gallery DOI (CC-BY credit added automatically)."),
+    image_url: z.string().optional().describe("Image URL for a non-Togo source (e.g. a BioArt download link)."),
+    image_path: z.string().optional().describe("Local image file for a non-Togo source."),
+    source: z.enum(["bioart", "external"]).optional(),
+    title: z.string().optional().describe("Slide title; also the title used in an external credit."),
+    caption: z.string().optional(),
+    credit: z.string().optional().describe("Explicit credit text for an external image."),
+    annotations: z.array(annotationSchema).default([]),
+    locale: localeSchema,
+    sourceLabel: sourceLabelSchema,
+    modified: z.boolean().default(false),
+    outPath: z.string().optional(),
+  },
+  async ({ doi, image_url, image_path, source, title, caption, credit, annotations, locale, sourceLabel, modified, outPath }) => {
+    try {
+      const anns = (annotations ?? []) as Annotation[];
+      // A close-up displays a cropped portion, so CC-BY "indicate changes" applies.
+      const zoomed = hasCloseup(anns);
+      let image: EmbeddedImage | undefined;
+      let creditText = "";
+      let base = "annotated";
+
+      if (doi) {
+        const pic = await getPictureById(doi);
+        if (!pic || !pic.png || pic.png === "-") return errorResult(`picture not found or has no png: ${doi}`);
+        const opts = { locale, sourceLabel, modified: modified || zoomed };
+        const { buf, mime } = await fetchImageBuffer(assetUrl(pic.png));
+        image = toEmbedded(mime === "image/png" ? embedPngAttribution(buf, attributionMeta(pic, opts)) : buf, mime);
+        creditText = buildCitation(pic, opts).text;
+        base = bareDoi(doi).replace(/[^\w]+/g, "_");
+      } else if (image_path || image_url) {
+        image = image_path ? await loadImageFile(image_path) : await fetchImageAsDataUri(image_url as string);
+        creditText = externalCredit({ source, title, credit, locale }).text;
+      } else {
+        return errorResult("provide one of: doi, image_url, image_path");
+      }
+
+      const out = outPath ?? join(OUT_DIR, `${base}_annotated.pptx`);
+      await buildAnnotatedImage({ title, caption, credit: creditText, image, annotations: anns }, out);
+      return fileResult(
+        out,
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        {
+          annotations: anns.length,
+          closeups: anns.filter((a) => a.type === "closeup").length,
+          source_image_modified: false,
+          credit: creditText,
+          note:
+            "Source image embedded unmodified; close-ups use a PowerPoint display-level crop." +
+            (zoomed ? " Credit marked as modified because a cropped close-up is shown." : ""),
+        }
+      );
+    } catch (e) {
+      return errorResult(`annotate_image failed: ${(e as Error).message}`);
     }
   }
 );

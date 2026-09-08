@@ -138,8 +138,27 @@ legend, an Acknowledgement, or a slide corner.
 | `generate_reference` | Build a Reference block (Markdown/BibTeX/text) for many images. |
 | `build_figure` | **Paper-style figure page** (1+ images) with the credit **inside each figure legend**, plus Acknowledgements + References. `format: html` or `pdf`. Writes a file, returns its path. |
 | `build_pptx` | **PowerPoint deck**: one slide per image. Default: small license note **bottom-right** (`creditPlacement: "corner"`); `"caption"` for a full legend. Plus a References slide. Writes a `.pptx`, returns its path. |
+| `annotate_image` | **Annotation layer** on one illustration: speech-bubble callouts with leader lines, ring markers, translucent highlights, and loupe **close-ups**. The source image is never altered — close-ups re-insert the same bytes with a PowerPoint display-level crop. Writes a `.pptx`. |
 | `build_diagram` | **Flow schematic ("ポンチ絵")**: combines several illustrations into one slide with a deterministic snake-grid auto-layout (no overlaps, arrows never diagonal), labeled arrows between steps, and all credits aggregated into a References block. Each step takes an illustration `doi` or stays a labeled placeholder. Writes a `.pptx`. |
 | `list_facets` | List filter values (tags, taxonomy) to refine searches. |
+
+### Annotating without altering the image
+
+`annotate_image` draws an **annotation layer on top of** an illustration, so the
+original asset is never re-encoded or edited:
+
+| Annotation | What it draws |
+|---|---|
+| `callout` | Speech bubble + leader line + anchor dot at `at:[x,y]` |
+| `marker` | Ring (and optional label) around a point |
+| `highlight` | Translucent rect/ellipse over `rect:[x,y,w,h]` |
+| `closeup` | Outlines the region and shows it **enlarged beside the image**, joined by connector lines (loupe) |
+
+All coordinates are **fractions (0-1) of the image box**, so they are
+resolution-independent. Close-ups use PowerPoint's own crop (`srcRect`), which
+keeps the embedded picture bytes intact and stays editable/undoable in
+PowerPoint. Because a close-up displays a cropped portion, the CC-BY credit is
+automatically marked as modified ("改変あり" / "modified") for Togo images.
 
 ### Illustration sources (Togo + BioArt)
 
