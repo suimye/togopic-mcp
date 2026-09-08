@@ -558,7 +558,7 @@ server.tool(
       const first = steps.find((s) => s.doi)?.doi;
       const base = first ? bareDoi(first).replace(/[^\w]+/g, "_") : "diagram";
       const out = outPath ?? join(OUT_DIR, `${base}_diagram.pptx`);
-      await buildDiagram({ title, subtitle, steps: resolved, edges }, out);
+      await buildDiagram({ title, subtitle, steps: resolved, edges, locale }, out);
       return fileResult(
         out,
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",

@@ -24,6 +24,8 @@ export interface DiagramSpec {
   steps: DiagramStep[];
   /** Labels between consecutive steps; length steps.length-1 (missing = blank). */
   edges?: string[];
+  /** Wording for the References block ("Fig." vs "図"). Default "en". */
+  locale?: "ja" | "en";
 }
 
 const W = 10, H = 5.63;
@@ -108,7 +110,8 @@ export async function buildDiagram(spec: DiagramSpec, outPath: string): Promise<
   }
 
   if (cites.length) {
-    s.addText(cites.map((c, i) => `図${i + 1}: ${c}`).join("\n"),
+    const figWord = (spec.locale ?? "en") === "ja" ? "図" : "Fig. ";
+    s.addText(cites.map((c, i) => `${figWord}${i + 1}: ${c}`).join("\n"),
       { x: 0.4, y: 4.35, w: 9.2, h: 0.95, fontSize: 7, color: "555555", lineSpacingMultiple: 1.05, valign: "top" });
   }
 
