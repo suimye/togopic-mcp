@@ -20,6 +20,7 @@ import { fetchImageBuffer, toEmbedded, loadImageFile, fetchImageAsDataUri, type 
 import { attributionMeta, embedPngAttribution, embedSvgAttribution } from "./embed.js";
 import { externalCredit } from "./sources.js";
 import { fetchBioArt } from "./bioart.js";
+import { findIllustration } from "./resolve.js";
 import { buildFigureHtml, type FigureEntry } from "./figure.js";
 import { buildPptx } from "./pptx.js";
 import { buildDiagram, type DiagramStep } from "./diagram.js";
@@ -509,6 +510,7 @@ server.tool(
       const resolved: DiagramStep[] = [];
       const missing: string[] = [];
       const citations: string[] = [];
+      const placeholderLabels: string[] = [];
       for (const st of steps) {
         // 1) Togo picture gallery (DOI): fetched + CC-BY credit embedded.
         if (st.doi) {
@@ -523,6 +525,7 @@ server.tool(
             continue;
           }
           missing.push(st.doi);
+          placeholderLabels.push(st.label);
           resolved.push({ label: st.label, slot: st.slot ?? `[${st.label}]` });
           continue;
         }
@@ -553,7 +556,8 @@ server.tool(
           }
         }
         // 3) Placeholder.
-        resolved.push({ label: st.label, slot: st.slot ?? `[${st.label}]` });
+        placeholderLabels.push(st.label);
+          resolved.push({ label: st.label, slot: st.slot ?? `[${st.label}]` });
       }
       const first = steps.find((s) => s.doi)?.doi;
       const base = first ? bareDoi(first).replace(/[^\w]+/g, "_") : "diagram";
@@ -566,8 +570,15 @@ server.tool(
           title,
           nodes: steps.length,
           with_images: citations.length,
-          placeholders: steps.length - citations.length,
-          missing_doi: missing,
+          placeholders: placeholderLabels.length,
+          placeholder_labels: placeholderLabels,
+          missing_sources: missing,
+          placeholder_advice: placeholderLabels.length
+            ? "These nodes render as labeled dashed boxes because no illustration was supplied. " +
+              "Call find_illustration on each label to look for a Togo match or a broader term, " +
+              "or search NIH BioArt (bioart.niaid.nih.gov) and pass its bioart_id. Do not " +
+              "substitute an unrelated picture just to fill a slot."
+            : undefined,
           note:
             "Arrow labels are plain text (no background); credits for all placed images are " +
             "in the References block. Placeholder nodes need an illustration DOI or stay labeled.",
@@ -648,6 +659,28 @@ server.tool(
       );
     } catch (e) {
       return errorResult(`annotate_image failed: ${(e as Error).message}`);
+    }
+  }
+);
+
+server.tool(
+  "find_illustration",
+  "Resolve a concept to an illustration, and say clearly when none exists. Searches " +
+    "the Togo picture gallery for the term, then for its individual words, and returns " +
+    "candidates with their credits. If nothing matches it reports found:false with the " +
+    "terms it tried and what to do instead (broaden the term, use a NIH BioArt asset by " +
+    "bioart_id, or keep a labeled placeholder) — rather than silently returning nothing.",
+  {
+    query: z.string().describe("Concept to illustrate, e.g. \"contig\", \"sequencer\", \"nucleosome\"."),
+    limit: z.number().int().min(1).max(20).default(5),
+    locale: localeSchema,
+    sourceLabel: sourceLabelSchema,
+  },
+  async ({ query, limit, locale, sourceLabel }) => {
+    try {
+      return textResult(await findIllustration(query, { locale, sourceLabel, limit }));
+    } catch (e) {
+      return errorResult(`find_illustration failed: ${(e as Error).message}`);
     }
   }
 );

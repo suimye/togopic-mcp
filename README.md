@@ -140,6 +140,7 @@ legend, an Acknowledgement, or a slide corner.
 | `build_pptx` | **PowerPoint deck**: one slide per image. Default: small license note **bottom-right** (`creditPlacement: "corner"`); `"caption"` for a full legend. Plus a References slide. Writes a `.pptx`, returns its path. |
 | `annotate_image` | **Annotation layer** on one illustration: speech-bubble callouts with leader lines, ring markers, translucent highlights, and loupe **close-ups**. The source image is never altered — close-ups re-insert the same bytes with a PowerPoint display-level crop. Writes a `.pptx`. |
 | `build_diagram` | **Flow schematic ("ポンチ絵")**: combines several illustrations into one slide with a deterministic snake-grid auto-layout (no overlaps, arrows never diagonal), labeled arrows between steps, and all credits aggregated into a References block. Each step takes an illustration `doi` or stays a labeled placeholder. Writes a `.pptx`. |
+| `find_illustration` | Resolve a concept to an illustration **and say clearly when none exists** — returns candidates with credits, or `found:false` with the terms tried and what to do instead. |
 | `list_facets` | List filter values (tags, taxonomy) to refine searches. |
 
 ### Annotating without altering the image
@@ -159,6 +160,22 @@ resolution-independent. Close-ups use PowerPoint's own crop (`srcRect`), which
 keeps the embedded picture bytes intact and stays editable/undoable in
 PowerPoint. Because a close-up displays a cropped portion, the CC-BY credit is
 automatically marked as modified ("改変あり" / "modified") for Togo images.
+
+### When there is no illustration
+
+Some concepts genuinely have no picture in the gallery (`contig`, `scaffold`,
+`read`, "central dogma" as a single image). Rather than quietly emitting an empty
+box, the server is explicit about it:
+
+- **`find_illustration`** searches the term, then its individual words, and
+  returns either candidates (saying which broader term matched) or
+  `found: false` with the terms it tried.
+- When a fallback term matched, the advice warns that the hits came from a
+  broader word and may not fit — **never substitute an unrelated illustration
+  just to fill a slot**.
+- **`build_diagram`** renders unmatched steps as labeled dashed placeholders and
+  reports `placeholder_labels` plus advice: broaden the term, use a NIH BioArt
+  asset via `bioart_id`, or keep the placeholder deliberately.
 
 ### Illustration sources (Togo + BioArt)
 
