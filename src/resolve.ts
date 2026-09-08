@@ -25,6 +25,8 @@ export interface ConceptResult {
   matched_term?: string;
   tried_terms: string[];
   candidates: Candidate[];
+  /** True when more than one candidate matched: the user should choose. */
+  needs_choice: boolean;
   advice: string;
 }
 
@@ -73,15 +75,21 @@ export async function findIllustration(
     }
     if (hits.length) {
       const exact = term === query.trim();
+      const broadened = exact ? "" : `No hit for "${query}"; these come from the broader term "${term}", so check they actually fit. `;
+      const many = hits.length > 1;
       return {
         query,
         found: true,
         matched_term: term,
         tried_terms: tried,
         candidates: hits.map((p) => toCandidate(p, cOpts)),
-        advice: exact
-          ? "Pick a candidate and pass its `id` as the step `doi`."
-          : `No hit for "${query}"; these come from the broader term "${term}" — check they actually fit before using.`,
+        needs_choice: many,
+        advice: many
+          ? broadened +
+            "Several illustrations matched. Show them to the user and ask which one to use — " +
+            "call this tool again with thumbnails:true so they can see the images before deciding. " +
+            "Do not silently pick the first one."
+          : broadened + "Single match: pass its `id` as the step `doi`.",
       };
     }
   }
@@ -91,6 +99,7 @@ export async function findIllustration(
     found: false,
     tried_terms: tried,
     candidates: [],
+    needs_choice: false,
     advice:
       `The Togo picture gallery has no illustration for "${query}". Options, in order: ` +
       `(1) retry with a broader or related concept (e.g. a parent term, or the English/Japanese counterpart); ` +

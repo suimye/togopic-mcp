@@ -140,7 +140,7 @@ legend, an Acknowledgement, or a slide corner.
 | `build_pptx` | **PowerPoint deck**: one slide per image. Default: small license note **bottom-right** (`creditPlacement: "corner"`); `"caption"` for a full legend. Plus a References slide. Writes a `.pptx`, returns its path. |
 | `annotate_image` | **Annotation layer** on one illustration: speech-bubble callouts with leader lines, ring markers, translucent highlights, and loupe **close-ups**. The source image is never altered — close-ups re-insert the same bytes with a PowerPoint display-level crop. Writes a `.pptx`. |
 | `build_diagram` | **Flow schematic ("ポンチ絵")**: combines several illustrations into one slide with a deterministic snake-grid auto-layout (no overlaps, arrows never diagonal), labeled arrows between steps, and all credits aggregated into a References block. Each step takes an illustration `doi` or stays a labeled placeholder. Writes a `.pptx`. |
-| `find_illustration` | Resolve a concept to an illustration **and say clearly when none exists** — returns candidates with credits, or `found:false` with the terms tried and what to do instead. |
+| `find_illustration` | Resolve a concept to an illustration, **let the user choose between multiple matches** (`thumbnails:true` returns the images themselves), **and say clearly when none exists**. |
 | `list_facets` | List filter values (tags, taxonomy) to refine searches. |
 
 ### Annotating without altering the image
@@ -160,6 +160,29 @@ resolution-independent. Close-ups use PowerPoint's own crop (`srcRect`), which
 keeps the embedded picture bytes intact and stays editable/undoable in
 PowerPoint. Because a close-up displays a cropped portion, the CC-BY credit is
 automatically marked as modified ("改変あり" / "modified") for Togo images.
+
+### Choosing between several matches
+
+A concept often matches more than one illustration (three different sequencers, a
+dozen cells). The server never picks for you:
+
+- `find_illustration` sets **`needs_choice: true`** whenever more than one
+  candidate matched, and its advice tells the assistant to ask the user rather
+  than silently taking the first hit.
+- Calling it again with **`thumbnails: true`** returns the candidate **images**
+  as numbered content blocks, so the user can choose by eye in the chat:
+
+  ```
+  1. Portable DNA sequencer          — https://doi.org/10.7875/togopic.2024.237
+  2. Next Generation Sequencer (Glay) — https://doi.org/10.7875/togopic.2022.128
+  3. Next Generation Sequencer (Black) — https://doi.org/10.7875/togopic.2022.113
+  ```
+
+  The user answers "2", and that DOI is used for the figure.
+
+This runs entirely through the normal tool result, so it works in any MCP client.
+(The MCP `elicitation` capability could prompt from the server side instead, but
+client support for it is not yet universal.)
 
 ### When there is no illustration
 

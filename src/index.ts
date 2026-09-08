@@ -669,16 +669,41 @@ server.tool(
     "the Togo picture gallery for the term, then for its individual words, and returns " +
     "candidates with their credits. If nothing matches it reports found:false with the " +
     "terms it tried and what to do instead (broaden the term, use a NIH BioArt asset by " +
-    "bioart_id, or keep a labeled placeholder) — rather than silently returning nothing.",
+    "bioart_id, or keep a labeled placeholder) — rather than silently returning nothing. " +
+    "When several illustrations match (needs_choice:true) you MUST show them to the user and " +
+    "ask which to use: call again with thumbnails:true to return the images themselves so the " +
+    "user can choose by eye. Never pick one silently.",
   {
     query: z.string().describe("Concept to illustrate, e.g. \"contig\", \"sequencer\", \"nucleosome\"."),
     limit: z.number().int().min(1).max(20).default(5),
+    thumbnails: z
+      .boolean()
+      .default(false)
+      .describe("Also return the candidate images themselves, numbered, so the user can pick by eye."),
     locale: localeSchema,
     sourceLabel: sourceLabelSchema,
   },
-  async ({ query, limit, locale, sourceLabel }) => {
+  async ({ query, limit, locale, sourceLabel, thumbnails }) => {
     try {
-      return textResult(await findIllustration(query, { locale, sourceLabel, limit }));
+      const r = await findIllustration(query, { locale, sourceLabel, limit });
+      const content: any[] = [{ type: "text" as const, text: JSON.stringify(r, null, 2) }];
+      if (thumbnails) {
+        for (let i = 0; i < r.candidates.length; i++) {
+          const c = r.candidates[i];
+          if (!c.thumbnail_url) continue;
+          try {
+            const { buf, mime } = await fetchImageBuffer(c.thumbnail_url);
+            content.push({
+              type: "text" as const,
+              text: `${i + 1}. ${c.name_en || c.name} — ${c.id}`,
+            });
+            content.push({ type: "image" as const, data: buf.toString("base64"), mimeType: mime });
+          } catch {
+            /* skip a thumbnail we cannot fetch */
+          }
+        }
+      }
+      return { content };
     } catch (e) {
       return errorResult(`find_illustration failed: ${(e as Error).message}`);
     }
